@@ -122,16 +122,14 @@ python train_otmrd_BNN.py --dataset_path ./dataset --dataset cifar100 \
 ```
 
 ### Citation
-```
-@inproceedings{
-nguyen2023optimal,
-title={Optimal Transport Model Distributional Robustness},
-author={Van-Anh Nguyen and Trung Le and Anh Tuan Bui and Thanh-Toan Do and Dinh Phung},
-booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-year={2023},
-url={https://openreview.net/forum?id=D7LdL2SCCi}
-}
-```
+
+> @inproceedings{
+> nguyen2023optimal,
+> title={Optimal Transport Model Distributional Robustness},
+> author={Van-Anh Nguyen and Trung Le and Anh Tuan Bui and Thanh-Toan Do and Dinh Phung},
+> booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
+> year={2023},
+> url={https://openreview.net/forum?id=D7LdL2SCCi}}
 
 ### Acknowledgement
 This repository is based on [SAM](https://github.com/davda54/sam)
