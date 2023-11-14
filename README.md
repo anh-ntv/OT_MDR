@@ -16,6 +16,14 @@ Create a folder `./dataset` that includes `cifar10` and `cifar100` folder for th
 
 ## Experiment results
 
+_Table1. Classification accuracy on the CIFAR datasets of the single model setting with one particle. All experiments are trained three times with different random seeds._
+
+| Dataset   | Method                                     | WideResnet28x10       | Pyramid101           | Densenet121          |
+|-----------|--------------------------------------------|-----------------------|----------------------|----------------------|
+| CIFAR-10  | SAM                                        | 96.72 ± 0.007         | 96.20 ±  0.134       | 91.16  ±  0.240      |
+|           | **OT-MDR (Ours)**                          | **96.97 ± 0.009**     | **96.61  ± 0.063**   | **91.44  ± 0.113**   |
+| CIFAR-100 | SAM                                        | 82.69 ±  0.035        | 81.26 ±  0.636       | 68.09 ±  0.403       |
+|           | **OT-MDR (Ours)**                          | **84.14  ± 0.172**    | **82.28  ± 0.183**   | **69.84  ± 0.176**   |
 
 
 ## Training model
@@ -122,14 +130,16 @@ python train_otmrd_BNN.py --dataset_path ./dataset --dataset cifar100 \
 ```
 
 ### Citation
-
-> @inproceedings{
-> nguyen2023optimal,
-> title={Optimal Transport Model Distributional Robustness},
-> author={Van-Anh Nguyen and Trung Le and Anh Tuan Bui and Thanh-Toan Do and Dinh Phung},
-> booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-> year={2023},
-> url={https://openreview.net/forum?id=D7LdL2SCCi}}
+```bibtex
+@inproceedings{  
+    nguyen2023optimal,  
+    title={Optimal Transport Model Distributional Robustness},  
+    author={Van-Anh Nguyen and Trung Le and Anh Tuan Bui and Thanh-Toan Do and Dinh Phung},  
+    booktitle={Thirty-seventh Conference on Neural Information Processing Systems},  
+    year={2023},  
+    url={https://openreview.net/forum?id=D7LdL2SCCi}
+    } 
+```
 
 ### Acknowledgement
 This repository is based on [SAM](https://github.com/davda54/sam)
