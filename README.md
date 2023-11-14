@@ -1,7 +1,11 @@
 # OT-MDR: Optimal Transport Model Distributional Robustness
 This is the official implementation of OT-MDR that got accepted at NeurIPs 2023
 
-<img src="/figures/Cifar100_r10.png" style="height: 100px; width:100px;"/>
+<p float="middle">
+  <img src="/figures/Cifar100_r10.png" width="150" />
+  <img src="/figures/cifar100_r18_label.png" width="150" /> 
+  <img src="/figures/cifar100_RME.png" width="150" />
+</p>
 
 ## Environment
 USing Annaconda to install  
