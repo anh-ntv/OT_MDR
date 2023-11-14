@@ -294,7 +294,7 @@ def train_sam(args, model, dataset):
     #                 lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
     base_optimizer = torch.optim.Adam
     if args.sam:
-        optimizer = SAM(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive, is_sgd=args.sgd,
+        optimizer = SAM(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive, is_sgd=args.adam,
                     lr=args.learning_rate, weight_decay=args.weight_decay, model=model, ignore_sigma=args.ignore_sigma,
                     geometry=args.geometry, p_power=args.p_power)
     else:

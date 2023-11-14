@@ -15,11 +15,11 @@ class SAM(torch.optim.Optimizer):
         self.param_groups = self.base_optimizer.param_groups
         self.defaults.update(self.base_optimizer.defaults)
         self.is_sgd = is_sgd
-        self.model = model
         self.ignore_sigma = ignore_sigma
         self.geometry = geometry
         self.p_power = p_power
-        self.assign_name(model)
+        self.model = model
+        if self.model: self.assign_name(self.model)
         self.count = 0
 
     def assign_name(self, model):
@@ -39,32 +39,44 @@ class SAM(torch.optim.Optimizer):
                 self.state[p]["old_p"] = p.data.clone()
                 if p.grad is None: continue
                 self.state[p]["old_p_grad"] = p.grad.data.clone()
-                name_p = self.state[p]['name']
-                if self.ignore_sigma and "rho" in name_p:
-                    continue
+                if self.model:
+                    name_p = self.state[p]['name']
+                    if self.ignore_sigma and "rho" in name_p:
+                        continue
                 s = (p if group["adaptive"] else torch.tensor(1.0).to(p))
                 if self.geometry:
                     s = torch.abs(p)
-                    if "rho" in name_p:
-                        if self.ignore_sigma:
-                            continue
-                        else:
-                            name_p_mu = name_p.replace("rho", "mu")
-                            p_mu = self.param_by_name[name_p_mu]
-                            sigma = 1.0
-                            if self.count > 10:
-                                sigma = torch.max(torch.log1p(torch.exp(p)), torch.tensor(1e-6).to(p))
-                            s = p_mu / sigma
-                    elif "mu" in name_p:
-                        name_p_rho = name_p.replace("mu", "rho")
-                        p_rho = self.param_by_name[name_p_rho]
-                        if self.p_power:
-                            s = p / torch.log1p(torch.exp(p_rho**2))
-                        else:
-                            sigma = 1.0
-                            if self.count > 10:
-                                sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(p))
-                            s = p / sigma
+                    if self.model:
+                        if "rho" in name_p:
+                            if self.ignore_sigma:
+                                continue
+                            else:
+                                name_p_mu = name_p.replace("rho", "mu")
+                                p_mu = self.param_by_name[name_p_mu]
+                                # sigma = 1.0
+                                # if self.count > 10:
+                                #     sigma = torch.max(torch.log1p(torch.exp(p)), torch.tensor(1e-6).to(p))
+                                # s = p_mu / sigma
+                                # same like in the paper
+                                sigma = p
+                                if self.count < 10:
+                                    sigma = 1.0
+                                s = torch.abs(p_mu) / sigma
+                        elif "mu" in name_p:
+                            name_p_rho = name_p.replace("mu", "rho")
+                            p_rho = self.param_by_name[name_p_rho]
+                            # if self.p_power:
+                            #     s = p / torch.log1p(torch.exp(p_rho**2))
+                            # else:
+                            #     sigma = 1.0
+                            #     if self.count > 10:
+                            #         sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(p))
+                            #     s = p / sigma
+                            # same like in the paper
+                            sigma = p_rho
+                            if self.count < 10:
+                                sigma = 1.0
+                            s = torch.abs(p.data) / sigma
                 # e_w =  * p.grad * scale.to(p)
                 e_w = torch.pow(s, 2) * p.grad * scale.to(p)
                 p.add_(e_w)  # climb to the local maximum "w + e(w)"
@@ -101,29 +113,45 @@ class SAM(torch.optim.Optimizer):
             norm = []
             for group in self.param_groups:
                 for p in group["params"]:
-                    name_p = self.state[p]['name']
                     scale = torch.abs(p)
-                    if "rho" in name_p:
-                        if self.ignore_sigma: continue
-                        else:
-                            name_p_mu = name_p.replace("rho", "mu")
-                            p_mu = self.param_by_name[name_p_mu]
-                            sigma = torch.max(torch.log1p(torch.exp(p)), torch.tensor(1e-6).to(shared_device))
+                    if self.model:
+                        name_p = self.state[p]['name']
+                        if "rho" in name_p:
+                            if self.ignore_sigma: continue
+                            else:
+                                name_p_mu = name_p.replace("rho", "mu")
+                                p_mu = self.param_by_name[name_p_mu]
+                                # sigma = torch.max(torch.log1p(torch.exp(p)), torch.tensor(1e-6).to(shared_device))
+                                # if self.count < 10:
+                                #     sigma = 1.0
+                                # scale = torch.abs(p_mu) / sigma
+                                # same like in the paper
+                                sigma = p
+                                if self.count < 10:
+                                    sigma = 1.0
+                                scale = torch.abs(p_mu) / sigma
+
+                            sigma = p
                             if self.count < 10:
                                 sigma = 1.0
                             scale = torch.abs(p_mu) / sigma
-                    elif "mu" in name_p:
-                        name_p_rho = name_p.replace("mu", "rho")
-                        p_rho = self.param_by_name[name_p_rho]
-                        if self.p_power:
-                            sigma = 1.0
-                            if self.count > 10:
-                                sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(shared_device))
-                            scale = torch.abs(p) / sigma
-                        else:
-                            sigma = 1.0
-                            if self.count > 10:
-                                sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(shared_device))
+                        elif "mu" in name_p:
+                            name_p_rho = name_p.replace("mu", "rho")
+                            p_rho = self.param_by_name[name_p_rho]
+                            # if self.p_power:
+                            #     sigma = 1.0
+                            #     if self.count > 10:
+                            #         sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(shared_device))
+                            #     scale = torch.abs(p) / sigma
+                            # else:
+                            #     sigma = 1.0
+                            #     if self.count > 10:
+                            #         sigma = torch.max(torch.log1p(torch.exp(p_rho)), torch.tensor(1e-6).to(shared_device))
+                            #     scale = torch.abs(p.data) / sigma
+                            # # same like in the paper
+                            sigma = p_rho
+                            if self.count < 10:
+                                sigma = 1.0
                             scale = torch.abs(p.data) / sigma
                     if p.grad is not None:
                         norm.append((scale*p.grad).norm(p=2).to(shared_device))
@@ -138,9 +166,10 @@ class SAM(torch.optim.Optimizer):
 
                 for p in group["params"]:
                     if p.grad is None: continue
-                    name_p = self.state[p]['name']
-                    if "rho" in name_p and self.ignore_sigma:
-                        continue
+                    if self.model:
+                        name_p = self.state[p]['name']
+                        if "rho" in name_p and self.ignore_sigma:
+                            continue
                     norm.append(((torch.abs(p) if is_adaptive else 1.0) * p.grad).norm(p=2).to(shared_device))
             norm = torch.norm(torch.stack(norm), p=2)
         return norm
@@ -171,7 +200,8 @@ class SAM_batch_chain(torch.optim.Optimizer):
         self.merge_grad = merge_grad
         self.mode = mode
         self.ignore_sigma = ignore_sigma
-        self.assign_name(model)
+        self.model = model
+        if self.model: self.assign_name(self.model)
 
     def assign_name(self, model):
         self.param_by_name = {}
@@ -191,9 +221,10 @@ class SAM_batch_chain(torch.optim.Optimizer):
                 if p.grad is None: continue
                 if self.num_call_1st == 0:
                     self.state[p]["old_p"] = p.data.clone()
-                name_p = self.state[p]['name']
-                if self.ignore_sigma and "rho" in name_p:
-                    continue
+                if self.model:
+                    name_p = self.state[p]['name']
+                    if self.ignore_sigma and "rho" in name_p:
+                        continue
                 p_grad = p.grad.data.clone()
                 if self.merge_grad:
                     for i in range(self.num_call_1st):
@@ -359,23 +390,24 @@ class SAMnChain(torch.optim.Optimizer):
 
     @torch.no_grad()
     def second_step(self, zero_grad=False,  mode=1.0, noise_var=0):
-        grad_particles = []
-        for _ in range(self.n_branch):
-            grad_particles.append([])
+        # grad_particles = []
+        # for _ in range(self.n_branch):
+        #     grad_particles.append([])
         # countG = 0
         for group in self.param_groups:
             for p in group["params"]:
-                if p.grad is None: continue
                 p.data = self.state[p]["old_p"].clone()
+                if "{}_p_grad_update".format(0) not in self.state[p]: continue
                 grad = []
                 for idx_p in range(self.n_branch):
-                    grad_particles[idx_p].append(self.state[p]["{}_p_grad_update".format(idx_p)].clone())
-                    grad.append(self.state[p]["{}_p_grad_update".format(idx_p)])
+                    # grad_particles[idx_p].append(self.state[p]["{}_p_grad_update".format(idx_p)].clone())
+                    grad.append(self.state[p]["{}_p_grad_update".format(idx_p)].clone())
                 # p.grad.data = sum(grad)/len(grad)
                 if self.mode == 1:
-                    p.grad.data = sum(grad)
+                    p.grad = sum(grad)
                 elif self.mode == 1.1:
-                    p.grad.data = sum(grad) / len(grad)
+                    p.grad = sum(grad) / len(grad)
+        self.base_optimizer.step()
         if zero_grad: self.zero_grad()
 
     def _grad_norm(self, by=None):

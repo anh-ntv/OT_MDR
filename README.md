@@ -1,5 +1,7 @@
 # OT-MDR: Optimal Transport Model Distributional Robustness
-This is the official implementation of OT-MDR
+This is the official implementation of OT-MDR that got accepted at NeurIPs 2023
+
+<img src="/figures/Cifar100_r10.png" style="height: 100px; width:100px;"/>
 
 ## Environment
 USing Annaconda to install  
@@ -7,6 +9,10 @@ USing Annaconda to install
 
 ## Dataset
 Create a folder `./dataset` that includes `cifar10` and `cifar100` folder for these two dataset or allow the script to download and save itself 
+
+## Experiment results
+
+
 
 ## Training model
 We provide some training log in folder `log_files`.
@@ -25,7 +31,7 @@ python train_otmrd.py --rho 0.1 --dataset_path ./dataset --dataset cifar100 \
 # OT-MDR for cifar100
 python train_otmrd.py  --dataset_path ./dataset --dataset cifar100 \
  --epochs 200 --batch_size 128 --otmrd --merge_grad --mode 1 --noise_var 0.0001 --lr_schedule cosine \
- --rho_lst 0.1_0.2
+ --rho_lst 0.1_0.2 --random_seed 42
  ```
 
 #### Pyramid101
@@ -109,6 +115,18 @@ python train_otmrd_BNN.py --dataset_path ./dataset \
 python train_otmrd_BNN.py --dataset_path ./dataset --dataset cifar100 \
 --epochs 100 --batch_size 1024 --otmrd --mode 1 --model_name r18 \
 --n_model 1 --beta_type 5e-6 --noise_var 0.01 --merge_grad --ignore_sigma --rho_lst 0.005_0.01
+```
+
+### Citation
+```
+@inproceedings{
+nguyen2023optimal,
+title={Optimal Transport Model Distributional Robustness},
+author={Van-Anh Nguyen and Trung Le and Anh Tuan Bui and Thanh-Toan Do and Dinh Phung},
+booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
+year={2023},
+url={https://openreview.net/forum?id=D7LdL2SCCi}
+}
 ```
 
 ### Acknowledgement

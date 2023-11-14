@@ -16,6 +16,7 @@ from utility.log import Log
 from utility.initialize import initialize
 from utility.step_lr import StepLR
 from utility.bypass_bn import enable_running_stats, disable_running_stats
+from torch.autograd import Variable
 
 
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -24,8 +25,11 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from OT_MDR_optimizer import SAM, SAM_batch_chain, SAMnChain
 
 import torchvision.transforms as transforms
+from utility.atk_utils import *
+
 
 def save_checkpoint(dir, epoch, name="checkpoint", replace=False, **kwargs):
+    os.makedirs(dir, exist_ok=True)
     state = {}
     state.update(kwargs)
     if replace:
@@ -36,6 +40,26 @@ def save_checkpoint(dir, epoch, name="checkpoint", replace=False, **kwargs):
                     print("Remove", f_n)
     filepath = os.path.join(dir, "%s-%d.pt" % (name, epoch))
     torch.save(state, filepath)
+
+
+def eval_model(model, eval_dataset, device, loss_function, atk_params=None, log=None):
+    model.eval()
+    if log:
+        log.eval(len_dataset=len(dataset.test))
+    dataset_prediction = []
+    with torch.no_grad():
+        for batch in eval_dataset:
+            inputs, targets = (b.to(device) for b in batch)
+            if atk_params:
+                inputs = get_atk_samples(args, attack_params, model, inputs, targets, device)
+            predictions = model(inputs)
+            dataset_prediction.append(predictions)
+            loss = loss_function(predictions, targets)
+            correct = torch.argmax(predictions, 1) == targets
+            if log:
+                log(model, loss.cpu(), correct.cpu())
+        return torch.cat(dataset_prediction)
+
 
 
 def train_sambatch_chain(args, model, dataset):
@@ -248,11 +272,12 @@ def train_sambatch_nchain(args, model, dataset):
                             state_dict=model.state_dict(),
                             optimizer=optimizer.state_dict(),)
 
+
 def train_sam(args, model, dataset):
     print("===\nTrain with train_sam\n===")
     base_optimizer = torch.optim.SGD
     optimizer = SAM(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive, is_sgd=args.sgd,
-                    lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay, model=model)
+                    lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay)
 
     if args.lr_schedule in ['cosine']:
         scheduler = CosineAnnealingLR(optimizer, args.epochs)
@@ -314,6 +339,155 @@ def train_sam(args, model, dataset):
                             optimizer=optimizer.state_dict(),)
 
 
+
+def epoch_sam(args, model, optimizer, scheduler, epoch, iter, inputs, targets, log=None):
+    enable_running_stats(model)
+    prediction_adv = model(inputs)
+    loss_adv = smooth_crossentropy(prediction_adv, targets, smoothing=args.label_smoothing)
+    loss_adv.mean().backward()  # update "running_mean" and "running_var"
+    optimizer.first_step(zero_grad=True)
+
+    disable_running_stats(model)
+    predictions_adv_tiu = model(inputs)
+    loss_adv_tiu = smooth_crossentropy(predictions_adv_tiu, targets, smoothing=args.label_smoothing)
+    loss_adv_tiu.mean().backward()  # not update "running_mean" and "running_var"
+    optimizer.second_step(zero_grad=True)
+
+    sharpness = loss_adv_tiu - loss_adv
+
+    with torch.no_grad():
+        correct = torch.argmax(prediction_adv.data, 1) == targets
+        if args.lr_schedule in ['cosine']:
+            lr = scheduler.get_lr()[0]
+            if iter == 0:
+                scheduler.step()
+        else:
+            lr = scheduler.lr()
+            scheduler(epoch)
+        if log:
+            log(model, loss_adv.cpu(), correct.cpu(), lr, sharpness=sharpness)
+
+
+def train_parallel_attack(args, model, dataset):
+    print("===\nTrain with train_parallel_attack:\n\t attack on inputs x with model W to get input x_a, "
+          "then W_a = max(L(x_a) -> update W = W -grad(L_Wa(x_a))\n\tQuite same as AT-AWP\n===")
+
+    base_optimizer = torch.optim.SGD
+    if args.sam:
+        optimizer = SAM(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive, is_sgd=args.sgd,
+                        lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay,
+                        model=model)
+    elif args.sam_1chain:
+        optimizer = SAM_batch_chain(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive,
+                                lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay,
+                                merge_grad=args.merge_grad, mode=args.mode,
+                                rho_lst=args.rho_lst, model=model)
+    output_islogit = True
+    if isinstance(model, EnsembleWrap):
+        output_islogit = False
+    scheduler = StepLR(optimizer, args.learning_rate, args.epochs)
+    if args.lr_schedule in ['cosine']:
+        scheduler = CosineAnnealingLR(optimizer, args.epochs)
+    else:
+        scheduler = StepLR(optimizer, args.learning_rate, args.epochs)
+    attack_params = args.attack_params
+
+    for epoch in range(args.epochs):
+        model.train()
+        log.train(len_dataset=len(dataset.train))
+        iter = 0
+        for input_raw, targets_raw in dataset.train:
+            inputs = input_raw.to(device)
+            targets = targets_raw.to(device)
+
+            disable_running_stats(model)
+            input_adv = get_condition_atk_samples(args, attack_params, epoch, iter, model, inputs, targets, device)
+            # perturb_data = input_adv - inputs
+
+            epoch_sam(args, model, optimizer, scheduler, epoch, iter, input_adv, targets, log=log)
+            iter += 1
+        eval_model(model, dataset.test, device, smooth_crossentropy, log=log)
+        if (epoch + 1) % 50 == 0 and args.log_dir:
+            save_checkpoint(args.log_dir, epoch=epoch,
+                            name="checkpoint_{}".format(args.random_seed),
+                            replace=True,
+                            state_dict=model.state_dict(),
+                            optimizer=optimizer.state_dict(), )
+
+
+def train_parallel_attack_after(args, model, dataset):
+    print("===\nTrain with train_parallel_attack_after:\n\t  W_a = max(L(x) "
+          "then x_a = attack(W_a, x) -> update W = W -grad(L_Wa(x_a))\n===")
+    base_optimizer = torch.optim.SGD
+    if args.sam:
+        optimizer = SAM(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive, is_sgd=args.sgd,
+                        lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay,
+                        model=model)
+    elif args.sam_1chain:
+        optimizer = SAM_batch_chain(model.parameters(), base_optimizer, rho=args.rho, adaptive=args.adaptive,
+                                lr=args.learning_rate, momentum=args.momentum, weight_decay=args.weight_decay,
+                                merge_grad=args.merge_grad, mode=args.mode,
+                                rho_lst=args.rho_lst, model=model)
+    output_islogit = True
+    if isinstance(model, EnsembleWrap):
+        output_islogit = False
+    scheduler = StepLR(optimizer, args.learning_rate, args.epochs)
+    if args.lr_schedule in ['cosine']:
+        scheduler = CosineAnnealingLR(optimizer, args.epochs)
+    else:
+        scheduler = StepLR(optimizer, args.learning_rate, args.epochs)
+
+    attack_params = args.attack_params
+    for epoch in range(args.epochs):
+        model.train()
+        log.train(len_dataset=len(dataset.train))
+        iter = 0
+        for input_raw, targets_raw in dataset.train:
+            inputs = input_raw.to(device)
+            targets = targets_raw.to(device)
+            bz_instance = inputs.size(0)
+            # disable_running_stats(model)
+
+            # perturb_data = input_adv - inputs
+
+            enable_running_stats(model)
+            predictions = model(inputs)
+            loss = smooth_crossentropy(predictions, targets, smoothing=args.label_smoothing)
+            loss.mean().backward()  # update "running_mean" and "running_var"
+            optimizer.first_step(zero_grad=True)
+
+            disable_running_stats(model)
+            input_adv = get_condition_atk_samples(args, attack_params, epoch, iter, model, inputs, targets, device)
+            # perturb_data = input_adv - inputs
+            # disable_running_stats(model)
+            predictions_adv_tiu = model(input_adv)
+            loss_adv_tiu = smooth_crossentropy(predictions_adv_tiu, targets, smoothing=args.label_smoothing)
+            loss_adv_tiu.mean().backward()  # not update "running_mean" and "running_var"
+            optimizer.second_step(zero_grad=True)
+
+            sharpness = loss_adv_tiu - loss
+
+            with torch.no_grad():
+                correct = torch.argmax(predictions.data, 1) == targets
+                if args.lr_schedule in ['cosine']:
+                    lr = scheduler.get_lr()[0]
+                    if iter == 0:
+                        scheduler.step()
+                else:
+                    lr = scheduler.lr()
+                    scheduler(epoch)
+                if log:
+                    log(model, loss.cpu(), correct.cpu(), lr, sharpness=sharpness)
+            iter += 1
+        eval_model(model, dataset.test, device, smooth_crossentropy, log=log)
+        if (epoch + 1) % 50 == 0 and args.log_dir:
+            save_checkpoint(args.log_dir, epoch=epoch,
+                            name="checkpoint_{}".format(args.random_seed),
+                            replace=True,
+                            state_dict=model.state_dict(),
+                            optimizer=optimizer.state_dict(), )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--adaptive", action="store_true", help="True if you want to use the Adaptive SAM.")
@@ -348,6 +522,12 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default=None, help="folder to save model")
     parser.add_argument("--fine_tune", action="store_true", help="fine tunning model")
     parser.add_argument("--true_grad", action="store_true", help="fine tunning model")
+
+    parser.add_argument("--attack", type=str, default="p", help="[p, parallel] []")
+    parser.add_argument("--atk_epoch", type=int, default=0, help="epoch start to attack")
+    parser.add_argument("--atk_step", type=int, default=20, help="num steps to attack")
+    parser.add_argument("--atk_targeted", action="store_true", help="using specific target to attack")
+    parser.add_argument("--atk_skip", type=int, default=1, help="attack after x iter")
 
     args = parser.parse_args()
     args.data_split = [float(it) for it in args.data_split.split("_")]
@@ -384,6 +564,9 @@ if __name__ == "__main__":
     if args.model_name == "WRN":
         # model = WideResNet(args.depth, args.width_factor, args.dropout, in_channels=3, labels=num_cls)
         model = WideResNet(28, 10, args.dropout, in_channels=3, labels=num_cls)
+    elif args.model_name == "WRN34-10":
+        # model = WideResNet(args.depth, args.width_factor, args.dropout, in_channels=3, labels=num_cls)
+        model = WideResNet(34, 10, args.dropout, in_channels=3, labels=num_cls)
     elif args.model_name == "densenet121":
         model = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', pretrained=False, num_classes=num_cls)
     elif args.model_name == "resnet18":
@@ -404,14 +587,32 @@ if __name__ == "__main__":
         model = nn.DataParallel(model)
     model.to(device)
 
-    if args.sam or args.sgd:
-        train_sam(args, model, dataset)
-    if args.sam_chain and args.n_branch == 1:
-        train_sambatch_chain(args, model, dataset)
-    elif args.sam_chain and args.n_branch > 1:
-        train_sambatch_nchain(args, model, dataset)
+    attack_params = {
+        # 'epoch': 10,
+        'epoch': args.atk_epoch,
+        'skip': args.atk_skip,
+        'projecting': True,
+        'random_init': True,
+        'epsilon': 0.031,  # 8/255, perturbation size
+        # 'num_steps': 100,
+        'num_steps': args.atk_step,
+        'step_size': 0.007,  # 2/255, step size
+        'loss_type': 'ce',
+        # 'x_min': batch.min().item(),
+        # 'x_max': batch.max().item(),
+        'x_min': None,
+        'x_max': None,
+        'y_target': None,  # x
+        'targeted': args.atk_targeted,
+    }
+    args.attack_params = attack_params
+    args.num_cls = num_cls
+
+    if args.attack in ['p', 'parallel']:
+        train_parallel_attack(args, model, dataset)
+    elif args.attack in ['p_a', 'parallel_after']:
+        train_parallel_attack_after(args, model, dataset)
     else:
         print("BOOOOOM\nCheck your running params!!!!")
 
     log.flush()
-# CUDA_VISIBLE_DEVICES=6  python3 experiments/hessian_eigs/run_hess_eigs.py --data_path ../vit_selfOT/ViT-pytorch/data  --dataset CIFAR100   --model WRN28x10  --save_path ../sam/log_files/cifar100/wrn/bz128_n5step/hessian_value345.txt   --file ../sam/log_files/cifar100/wrn/bz128_n5step

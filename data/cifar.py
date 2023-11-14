@@ -25,7 +25,14 @@ class Cifar:
             root = './data'
         # if pre_trained or dataset == "tinyimagenet":
         if train_transform is None:
-            mean, std = self._get_statistics(root, dataset=dataset)
+            if dataset == "cifar10":
+                mean = (0.4914, 0.4822, 0.4465)
+                std = (0.2471, 0.2435, 0.2616)
+            elif dataset == "cifar100":
+                mean = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343)
+                std = (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+            else:
+                mean, std = self._get_statistics(root, dataset=dataset)
             train_transformer_lst = [
                 transforms.RandomCrop(size=(img_size, img_size), padding=4),
                 transforms.RandomHorizontalFlip(),
