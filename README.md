@@ -2,9 +2,9 @@
 This is the official implementation of OT-MDR that got accepted at NeurIPs 2023
 
 <p float="middle">
-  <img src="/figures/Cifar100_r10.png" width="150" />
-  <img src="/figures/cifar100_r18_label.png" width="150" /> 
-  <img src="/figures/cifar100_RME.png" width="150" />
+  <img src="/figures/Cifar100_r10.png" width="250" />
+  <img src="/figures/cifar100_r18_label.png" width="250" /> 
+  <img src="/figures/cifar100_RME.png" width="250" />
 </p>
 
 ## Environment
