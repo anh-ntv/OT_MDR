@@ -339,7 +339,7 @@ if __name__ == "__main__":
     parser.add_argument("--sam", action="store_true")
     parser.add_argument("--sgd", action="store_true", help="Update model by SGD")
     parser.add_argument("--n_branch", type=int, default=1, help="Update model by SAMnBranch")
-    parser.add_argument("--sam_chain", action="store_true", help="Update model by sam2branch with chain")
+    parser.add_argument("--otmdr", action="store_true", help="Update model by sam2branch with chain")
 
     parser.add_argument("--merge_grad", action="store_true", help="merge gradient for sam_batch_chain")
     parser.add_argument("--noise_var", type=float, default=0, help="Noise variance")
@@ -406,9 +406,9 @@ if __name__ == "__main__":
 
     if args.sam or args.sgd:
         train_sam(args, model, dataset)
-    if args.sam_chain and args.n_branch == 1:
+    if args.otmdr and args.n_branch == 1:
         train_sambatch_chain(args, model, dataset)
-    elif args.sam_chain and args.n_branch > 1:
+    elif args.otmdr and args.n_branch > 1:
         train_sambatch_nchain(args, model, dataset)
     else:
         print("BOOOOOM\nCheck your running params!!!!")
