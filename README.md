@@ -1,5 +1,5 @@
-# OT-MDR: Optimal Transport Model Distributional Robustness
-This is the official implementation of OT-MDR that got accepted at NeurIPs 2023
+# OT-MDR: [Optimal Transport Model Distributional Robustness](https://openreview.net/forum?id=D7LdL2SCCi)
+This is the official implementation of [OT-MDR](https://openreview.net/forum?id=D7LdL2SCCi) that got accepted at NeurIPs 2023
 
 <p float="middle">
   <img src="/figures/Cifar100_r10.png" width="250" />
